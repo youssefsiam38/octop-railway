@@ -1,0 +1,38 @@
+# Public front door for the Octop Railway template.
+#
+# Octop runs on loopback (127.0.0.1:{$OCTOP_INTERNAL_PORT}); this Caddy server is the only public
+# listener. Octop has its own login, so Caddy does NOT add authentication. It does one thing: it
+# closes Octop's first-run setup-wizard API. Upstream leaves POST /api/setup/resume-wizard open to
+# anonymous callers while the instance has exactly one user; the token it returns lets
+# POST /api/setup/finish register an LLM provider (any base URL) and make it the active model,
+# i.e. silently route every conversation to a stranger's endpoint. This template creates the admin
+# from environment variables on first boot, so the wizard is never needed: every /api/setup/* call is
+# refused except the two read-only GETs the web app uses on load.
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:{$PORT:8080} {
+	@setup_api {
+		path /api/setup /api/setup/*
+		not {
+			method GET HEAD
+			path /api/setup/status /api/setup/presets
+		}
+	}
+	handle @setup_api {
+		header Content-Type application/json
+		respond `{"detail":"The setup wizard is disabled on this deployment; the admin account is created from environment variables."}` 403
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:{$OCTOP_INTERNAL_PORT:8088} {
+			# Pass Railway's X-Forwarded-For through unchanged: Octop trusts the right-most entry
+			# from a loopback peer, and Railway's edge appends the real client address there.
+			header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+			header_up X-Forwarded-Proto {$FORWARD_PROTO:https}
+		}
+	}
+}

@@ -1,0 +1,43 @@
+# Local test topology. Mirrors the single Railway service, plus a test-only mock LLM provider:
+#   app  -> the official Octop image plus a Caddy front door (same container). Caddy is public on
+#           $PORT (8080); Octop runs on loopback :8088. SQLite and agent workspaces on /data.
+#   mock -> a stdlib OpenAI-compatible stub (tests/mock/mock_openai.py). Test-only; the published
+#           template talks to whatever provider you configure in Octop's Settings.
+name: octop-railway-test
+
+networks:
+  default:
+    name: octop-railway-test
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: images/app/Dockerfile
+      args:
+        WRAPPER_VERSION: ${WRAPPER_VERSION:-0.0.0-local}
+        VCS_REF: ${VCS_REF:-local}
+    image: ${OCTOP_RAILWAY_IMAGE:-octop-railway:local}
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: '8080'
+      OCTOP_ADMIN_USERNAME: admin
+      OCTOP_DEFAULT_PASSWORD: ${OCTOP_TEST_ADMIN_PASSWORD:-localTestOnlyAdminPw1}
+      OCTOP_ADMIN_LOCALE: en
+      OCTOP_LOG_LEVEL: info
+      LANGFUSE_TRACING_ENABLED: 'false'
+      FORWARD_PROTO: http
+    ports:
+      - '127.0.0.1:${OCTOP_TEST_PORT:-18188}:8080'
+    volumes:
+      - data:/data
+
+  mock:
+    image: python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+    command: ['python', '/mock/mock_openai.py']
+    volumes:
+      - ./tests/mock:/mock:ro
+
+volumes:
+  data:
