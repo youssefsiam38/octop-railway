@@ -128,12 +128,14 @@ check_setup_closed() {
 check_product_flow() {
   local tag=$1 body pid aid tid reply hist
   body=$(jq -nc --arg u "$MOCK_BASE_URL" '{name:"mock",kind:"openai",base_url:$u,api_key:"mock-key",models:[{id:"mock-model",name:"mock-model",enabled:true}]}')
-  pid=$(api POST /api/admin/providers "$body" | jq -r '.id // empty')
+  # Reuse an existing "mock" provider so the flow can be re-run against the same deployment.
+  pid=$(api GET /api/admin/providers | jq -r 'first(.[] | select(.name=="mock") | .id) // empty')
+  [ -n "$pid" ] || pid=$(api POST /api/admin/providers "$body" | jq -r '.id // empty')
   [ -n "$pid" ] && pass "admin registers an LLM provider (id $pid)" || fail "provider create"
   assert_eq "provider round-trip test succeeds" "true" "$(api POST "/api/admin/providers/$pid/test" '{"model_id":"mock-model"}' | jq -r '.ok')"
   assert_eq "active model is set" "200" "$(api_code PUT /api/providers/active-model '{"provider_name":"mock","model":"mock-model"}')"
 
-  aid=$(api POST /api/agents "$(jq -nc --arg n "Smoke $tag" '{name:$n,default_model:"mock/mock-model"}')" | jq -r '.agent_id // empty')
+  aid=$(api POST /api/agents "$(jq -nc --arg n "Smoke $tag $(date +%s)" '{name:$n,default_model:"mock/mock-model"}')" | jq -r '.agent_id // empty')
   [ -n "$aid" ] && pass "agent created ($aid)" || fail "agent create"
   tid=$(api POST "/api/agents/$aid/threads" '{}' | jq -r '.thread_id // empty')
   [ -n "$tid" ] && pass "chat thread created" || fail "thread create"
